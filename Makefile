@@ -1,59 +1,30 @@
-BINARY=word-cloud-generator
+AWS_REGION=eu-central-1
+ACCOUNT_ID=735339530721
 
-all: clean test build
+REPOSITORY_NAME=word-cloud-generator
+CLUSTER_NAME=word-cloud-cluster
+SERVICE_NAME=word-cloud-service
 
-lint: vet fmt
-	@echo "Linting finished using go vet && go fmt"
+IMAGE_TAG=latest
+IMAGE_URI=$(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(REPOSITORY_NAME):$(IMAGE_TAG)
 
-vet:
-	go vet $$(go list ./...|grep -v vendor)
+deploy:
+	@echo "Login to ECR"
+	aws ecr get-login-password --region $(AWS_REGION) | \
+	docker login --username AWS --password-stdin $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com
 
-fmt:
-	go fmt $$(go list ./...|grep -v vendor)
+	@echo "Build Docker image"
+	docker build -t $(REPOSITORY_NAME):$(IMAGE_TAG) .
 
-test:
-	@go test $$(go list ./...|grep -v vendor) -v
+	@echo "Tag image"
+	docker tag $(REPOSITORY_NAME):$(IMAGE_TAG) $(IMAGE_URI)
 
-integration:
-	@curl -H "Content-Type: application/json" -d '{"text":"stars stars stars"}' http://localhost:8888/api | grep 3
+	@echo "Push to ECR"
+	docker push $(IMAGE_URI)
 
-run:
-	@go run main.go
-
-start-mac: build
-	./artifacts/osx/word-cloud-generator
-
-goconvey-install:
-	@go install github.com/smartystreets/goconvey
-
-goconvey:
-	@goconvey -port=9999
-
-build:
-	@echo "Creating compiled builds in ./artifacts"
-	@env GOOS=darwin GOARCH=amd64 go build -o ./artifacts/osx/${BINARY} -v .
-	@env GOOS=linux GOARCH=amd64 go build -o ./artifacts/linux/${BINARY} -v .
-	@env GOOS=windows GOARCH=amd64 go build -o ./artifacts/windows/${BINARY} -v .
-	@ls -lR ./artifacts
-
-clean:
-	@echo "Cleaning up previous builds"
-	@go clean
-	@rm -rf ./artifacts/*
-
-install:
-	@echo "Installs to $$GOPATH/bin"
-	@go build ./main.go
-	@go install
-
-uninstall:
-	@echo "Removing from $$GOPATH/bin"
-	@go clean -i
-
-git-hooks:
-	test -d .git/hooks || mkdir -p .git/hooks
-	cp -f hooks/git-pre-commit.hook .git/hooks/pre-commit
-	chmod a+x .git/hooks/pre-commit
-
-.PHONY: all install uninstall clean
-.DEFAULT_GOAL := all
+	@echo "Force new deployment on ECS"
+	aws ecs update-service \
+		--cluster $(CLUSTER_NAME) \
+		--service $(SERVICE_NAME) \
+		--force-new-deployment \
+		--region $(AWS_REGION)
