@@ -8,7 +8,24 @@ SERVICE_NAME=word-cloud-service
 IMAGE_TAG=latest
 IMAGE_URI=$(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com/$(REPOSITORY_NAME):$(IMAGE_TAG)
 
-deploy:
+# ==========================
+# Test
+# ==========================
+test:
+	@echo "Running Go tests..."
+	go test $(shell go list ./... | grep -v vendor) -v
+
+# ==========================
+# Build
+# ==========================
+build:
+	@echo "Building Go binary..."
+	GOOS=linux GOARCH=amd64 go build -o ./bin/word-cloud-generator main.go
+
+# ==========================
+# Deploy
+# ==========================
+deploy: build
 	@echo "Login to ECR"
 	aws ecr get-login-password --region $(AWS_REGION) | \
 	docker login --username AWS --password-stdin $(ACCOUNT_ID).dkr.ecr.$(AWS_REGION).amazonaws.com
