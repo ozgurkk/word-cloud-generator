@@ -1,4 +1,4 @@
-name: Go CI/CD to AWS ECS
+name: Go CI/CD to Azure Container Apps
 
 on:
   push:
@@ -8,30 +8,42 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     environment: dev
+    env:
+      ACR_NAME: ${{ vars.ACR_NAME }}               # myregistry
+      RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP }}   # rg-word-cloud-dev
+      CONTAINER_APP_NAME: ${{ vars.CONTAINER_APP_NAME }} # word-cloud-dev
+      IMAGE_NAME: word-cloud-generator
+      TAG: ${{ github.sha }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Debug
-        run: |
-          pwd
-          ls -la
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
+          check-latest: true
 
       - name: Test
-        run: make -f Makefile test
+        run: go test ./... -v
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: eu-central-1
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Deploy
-        run: make -f Makefile deploy
+      - name: Build, Push and Deploy to Container Apps
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          resourceGroup: ${{ env.RESOURCE_GROUP }}
+          containerAppName: ${{ env.CONTAINER_APP_NAME }}
+          registryUrl: ${{ env.ACR_NAME }}.azurecr.io
+          imageToBuild: ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+          dockerfilePath: ./Dockerfile
+          # (Opsiyonel) build args, context vb.:
+          # buildContext: .
+          # targetPort: 8080
+          # ingress: external
