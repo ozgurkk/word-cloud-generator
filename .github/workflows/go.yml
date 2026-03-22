@@ -4,22 +4,21 @@ on:
   push:
     branches: [ main ]
 
-
 permissions:
   id-token: write
-  contents: read 
-
+  contents: read
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     environment: dev
     env:
-      ACR_NAME: ${{ vars.ACR_NAME }}               # myregistry
-      RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP }}   # rg-word-cloud-dev
-      CONTAINER_APP_NAME: ${{ vars.CONTAINER_APP_NAME }} # word-cloud-dev
+      ACR_NAME: ${{ vars.ACR_NAME }}                     # ör: wordcloudgenerator
+      RESOURCE_GROUP: ${{ vars.RESOURCE_GROUP }}         # ör: rg-wordcloud-dev
+      CONTAINER_APP_NAME: ${{ vars.CONTAINER_APP_NAME }} # ör: ca-word-cloud-gen-dev
       IMAGE_NAME: word-cloud-generator
       TAG: ${{ github.sha }}
+      REGISTRY: ${{ vars.ACR_NAME }}.azurecr.io
 
     steps:
       - name: Checkout
@@ -41,15 +40,26 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Build, Push and Deploy to Container Apps
+      # ACR'ye docker push için auth (OIDC ile az cli kullanıyoruz)
+      - name: ACR login
+        run: az acr login --name "${{ env.ACR_NAME }}"
+
+      - name: Build & Push image
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          context: .
+          file: ./Dockerfile
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Deploy to Azure Container Apps
         uses: azure/container-apps-deploy-action@v2
         with:
           resourceGroup: ${{ env.RESOURCE_GROUP }}
           containerAppName: ${{ env.CONTAINER_APP_NAME }}
-          registryUrl: ${{ env.ACR_NAME }}.azurecr.io
-          imageToBuild: ${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${{ env.TAG }}
-          dockerfilePath: ./Dockerfile
-          # (Opsiyonel) build args, context vb.:
-          # buildContext: .
-          # targetPort: 8080
-          # ingress: external
+          # v2'nin beklediği parametre: imageToDeploy
+          imageToDeploy: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.TAG }}
+          # Container App'de targetPort 8888 olmalı (ilk oluştururken set ettin)
+          
